@@ -1,24 +1,24 @@
 # backend/app.py
 
-import os
-from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import google.generativeai as genai  # Correct import
+import os
+from dotenv import load_dotenv
+
+# Import the latest google generative AI
+import google.generativeai as genai
 
 # Load environment variables
 load_dotenv()
-GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
-if not GEMINI_API_KEY:
-    raise RuntimeError("Set GOOGLE_API_KEY in environment or .env before running")
-
-# Set the API key
-genai.api_key = GEMINI_API_KEY
-
-# Initialize Flask
 app = Flask(__name__)
-CORS(app)  # Allow frontend to access backend
+CORS(app)
+
+# Configure API key
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+# Initialize Gemini model
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 @app.route("/")
 def home():
@@ -26,62 +26,52 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    data = request.json
+    query = data.get("query", "").strip()
+
+    if not query:
+        return jsonify({"error": "No query provided"}), 400
+
     try:
-        data = request.get_json()
-        query = data.get("query") or data.get("message")
-
-        if not query:
-            return jsonify({"error": "Query or message is required"}), 400
-
-        # Generate AI response for Quick Chat
-        response = genai.chat.create(
-            model="gemini-1.5",
-            messages=[{"author": "user", "content": query}]
-        )
-
-        # Extract text from response
-        text_response = response.last.message.get("content", "")
-
-        return jsonify({"response": text_response})
+        # Use generate_content method (correct approach)
+        response = model.generate_content(query)
+        
+        # Handle response properly - response.text is the correct attribute
+        text = response.text if hasattr(response, 'text') else str(response)
+        
+        return jsonify({"response": text})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Backend error: {str(e)}"}), 500
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
+    data = request.json
+    skills = data.get("skills", [])
+    interests = data.get("interests", [])
+    goal = data.get("goal", "").strip()
+
+    if not goal:
+        return jsonify({"error": "No goal provided"}), 400
+
     try:
-        data = request.get_json()
-        skills = data.get("skills", [])
-        interests = data.get("interests", [])
-        goal = data.get("goal", "")
-
-        if not goal:
-            return jsonify({"error": "Goal is required"}), 400
-
-        # Build prompt for AI Skill Analysis
         prompt = f"""
-I want to become a {goal}.
-My current skills: {', '.join(skills) if skills else 'None'}
-My interests: {', '.join(interests) if interests else 'None'}
-Please provide a detailed roadmap and advice to achieve my goal.
-"""
+        A user has the following skills: {', '.join(skills) if skills else 'None specified'}
+        Interests: {', '.join(interests) if interests else 'None specified'}
+        Goal: {goal}
 
-        # Generate AI response for Skill Analyzer
-        response = genai.chat.create(
-            model="gemini-1.5",
-            messages=[{"author": "user", "content": prompt}]
-        )
+        Analyze their skill gaps and provide personalized career advice in a concise manner.
+        Include specific skills they should learn and career paths they could pursue.
+        """
 
-        advice_text = response.last.message.get("content", "")
-
-        return jsonify({
-            "skills": skills,
-            "interests": interests,
-            "goal": goal,
-            "advice": advice_text
-        })
+        response = model.generate_content(prompt)
+        
+        # Handle response properly - response.text is the correct attribute
+        advice_text = response.text if hasattr(response, 'text') else str(response)
+        
+        return jsonify({"advice": advice_text})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Backend error: {str(e)}"}), 500
 
 if __name__ == "__main__":
-    print("Starting Flask server...")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
+    # Run backend on port 5000
+    app.run(host="0.0.0.0", port=5000, debug=True)
